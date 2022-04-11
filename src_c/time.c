@@ -28,8 +28,7 @@
 
 #define WORST_CLOCK_ACCURACY 12
 
-/* This is a doubly linked list of event timers. Each timer has a python dict,
- * timer ID, SDL event type and a repeat member. Access to this linked list
+/* This is a doubly linked list of event timers. Access to this linked list
  * must be protected with an SDL mutex.
  * An SDL mutex would be redundant if python GIL was unconditionally held in
  * the C callback function. But acquiring GIL can be costlier than acquiring a
@@ -37,11 +36,23 @@
  * often.
  */
 typedef struct pgEventTimer {
+    /* Linked list attributes */
     struct pgEventTimer *prev;
     struct pgEventTimer *next;
-    PyObject *event_dict;
+
+    /* The unique ID of a timer. This helps the callback get the correct timer
+     * instance from the linked list */
     intptr_t timer_id;
+
+    /* A dictproxy instance */
+    pgEventDictProxy *dict_proxy;
+
+    /* event type of the associated event */
     int event_type;
+
+    /* Number of times the event must be posted on the timer. If this number is
+     * non-positive, it means that there is no limit on the number of events on
+     * the timer */
     int repeat;
 } pgEventTimer;
 
@@ -53,8 +64,8 @@ static SDL_mutex *pg_timer_mutex = NULL;
 static intptr_t pg_timer_id = 0;
 
 /* Free a timer instance from linked list. Needs timer mutex held for data
- * safety. Might need GIL for a timer with a python dict. The caller must
- * ensure that the GIL is held, in this case */
+ * safety. This function call does not need GIL held, but can conditionally
+ * internally hold GIL if needed */
 static void
 _pg_timer_free(pgEventTimer *timer)
 {
@@ -77,7 +88,35 @@ _pg_timer_free(pgEventTimer *timer)
         }
     }
 
-    Py_XDECREF(timer->event_dict);
+    if (timer->dict_proxy) {
+        /* Destroy mutex here and set it to NULL */
+        SDL_mutex *mut = timer->dict_proxy->mut;
+
+        /* TODO: find a better way to handle errors here */
+        SDL_LockMutex(mut);
+
+        /* Set mutex to NULL, because it will not be needed beyond this point,
+         * only event functions could potentially have references to this, in
+         * that case a mutex is redundant. */
+        timer->dict_proxy->mut = NULL;
+
+        /* Free dict and dict_proxy only if there are no references to it on
+         * the event queue. If there are any references, event functions will
+         * handle cleanups */
+        if (timer->dict_proxy->num_on_queue <= 0) {
+            PyGILState_STATE gstate = PyGILState_Ensure();
+            Py_DECREF(timer->dict_proxy->dict);
+            PyGILState_Release(gstate);
+            free(timer->dict_proxy);
+        }
+        else {
+            timer->dict_proxy->is_freed = 1;
+        }
+
+        /* TODO: find a better way to handle errors here */
+        SDL_UnlockMutex(mut);
+        SDL_DestroyMutex(mut);
+    }
     free(timer);
 }
 
@@ -86,16 +125,18 @@ pg_time_autoquit(PyObject *self, PyObject *_null)
 {
     /* We can let errors silently pass in this function, because this
      * needs to run */
-    SDL_LockMutex(pg_timer_mutex);
+    SDL_mutex *mut = pg_timer_mutex;
+    SDL_LockMutex(mut);
 
     while (pg_event_timer) {
         /* Keep freeing till all are freed */
         _pg_timer_free(pg_event_timer);
     }
-    SDL_UnlockMutex(pg_timer_mutex);
-    /* After we are done, we can destroy the mutex as well */
-    SDL_DestroyMutex(pg_timer_mutex);
     pg_timer_mutex = NULL;
+    SDL_UnlockMutex(mut);
+    /* After we are done, we can destroy the mutex as well */
+    SDL_DestroyMutex(mut);
+
     Py_RETURN_NONE;
 }
 
@@ -122,22 +163,41 @@ _pg_add_event_timer(int ev_type, PyObject *ev_dict, int repeat)
     if (!new) {
         return -1;
     }
-    Py_XINCREF(ev_dict);
 
-    pg_timer_id++;
+    if (ev_dict) {
+        new->dict_proxy = (pgEventDictProxy *)malloc(sizeof(pgEventDictProxy));
+        if (!new->dict_proxy) {
+            free(new);
+            return -1;
+        }
+        new->dict_proxy->mut = SDL_CreateMutex();
+        if (!new->dict_proxy->mut) {
+            free(new->dict_proxy);
+            free(new);
+            return -1;
+        }
+        Py_INCREF(ev_dict);
+        new->dict_proxy->dict = ev_dict;
+        new->dict_proxy->num_on_queue = 0;
+        new->dict_proxy->is_freed = 0;
+    }
+    else {
+        new->dict_proxy = NULL;
+    }
 
     /* insert the timer into the doubly linked list at the first index */
     new->prev = NULL;
     new->next = pg_event_timer;
+
+    pg_timer_id++;
     new->timer_id = pg_timer_id;
     new->event_type = ev_type;
-    new->event_dict = ev_dict;
     new->repeat = repeat;
+
     if (pg_event_timer) {
         pg_event_timer->prev = new;
     }
     pg_event_timer = new;
-
     return 0;
 }
 
@@ -160,7 +220,7 @@ _pg_get_event_on_timer(intptr_t timer_id)
     return hunt;
 }
 
-/* Clear event timer by type. Needs timer mutex and GIL held for data safety.
+/* Clear event timer by type. Needs timer mutex held for data safety.
  */
 static void
 _pg_clear_event_timer_type(int ev_type)
@@ -182,7 +242,6 @@ timer_callback(Uint32 interval, void *param)
 {
     pgEventTimer *evtimer;
     PyGILState_STATE gstate;
-    int gil_held = 0;
     if (SDL_LockMutex(pg_timer_mutex) < 0) {
         return 0;
     }
@@ -193,15 +252,9 @@ timer_callback(Uint32 interval, void *param)
         goto end;
     }
 
-    /* Acquire GIL only if python API calls will be made, and that will only
-     * happen only if dict is a non-null python dict */
-    if (evtimer->event_dict) {
-        gstate = PyGILState_Ensure();
-        gil_held = 1;
-    }
-
     if (SDL_WasInit(SDL_INIT_VIDEO)) {
-        pg_post_event((Uint32)evtimer->event_type, evtimer->event_dict);
+        pg_post_event_dictproxy((Uint32)evtimer->event_type,
+                                evtimer->dict_proxy);
     }
     else {
         evtimer->repeat = 0;
@@ -214,10 +267,6 @@ timer_callback(Uint32 interval, void *param)
     }
 
 end:
-    if (gil_held) {
-        PyGILState_Release(gstate);
-    }
-
     SDL_UnlockMutex(pg_timer_mutex);
     return interval;
 }
