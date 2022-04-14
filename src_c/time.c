@@ -96,33 +96,26 @@ _pg_timer_free(pgEventTimer *timer)
     }
 
     if (timer->dict_proxy) {
-        /* Destroy mutex here and set it to NULL */
-        SDL_mutex *mut = timer->dict_proxy->mut;
+        int is_fully_freed = 0;
 
-        /* TODO: find a better way to handle errors here */
-        SDL_LockMutex(mut);
-
-        /* Set mutex to NULL, because it will not be needed beyond this point,
-         * only event functions could potentially have references to this, in
-         * that case a mutex is redundant. */
-        timer->dict_proxy->mut = NULL;
-
-        /* Free dict and dict_proxy only if there are no references to it on
-         * the event queue. If there are any references, event functions will
-         * handle cleanups */
+        SDL_AtomicLock(&timer->dict_proxy->lock);
+        /* Fully free dict and dict_proxy only if there are no references to it
+         * on the event queue. If there are any references, event functions
+         * will handle cleanups */
         if (timer->dict_proxy->num_on_queue <= 0) {
+            is_fully_freed = 1;
+        }
+        else {
+            timer->dict_proxy->is_freed = 1;
+        }
+        SDL_AtomicUnlock(&timer->dict_proxy->lock);
+
+        if (is_fully_freed) {
             PyGILState_STATE gstate = PyGILState_Ensure();
             Py_DECREF(timer->dict_proxy->dict);
             PyGILState_Release(gstate);
             free(timer->dict_proxy);
         }
-        else {
-            timer->dict_proxy->is_freed = 1;
-        }
-
-        /* TODO: find a better way to handle errors here */
-        SDL_UnlockMutex(mut);
-        SDL_DestroyMutex(mut);
     }
     free(timer);
 }
@@ -181,16 +174,11 @@ _pg_add_event_timer(int ev_type, PyObject *ev_dict, int repeat)
             free(new);
             return PG_TIMER_MEMORY_ERROR;
         }
-        new->dict_proxy->mut = SDL_CreateMutex();
-        if (!new->dict_proxy->mut) {
-            free(new->dict_proxy);
-            free(new);
-            return PG_TIMER_SDL_ERROR;
-        }
         PyGILState_STATE gstate = PyGILState_Ensure();
         Py_INCREF(ev_dict);
         PyGILState_Release(gstate);
         new->dict_proxy->dict = ev_dict;
+        new->dict_proxy->lock = 0;
         new->dict_proxy->num_on_queue = 0;
         new->dict_proxy->is_freed = 0;
     }

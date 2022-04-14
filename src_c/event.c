@@ -610,26 +610,12 @@ pg_post_event_dictproxy(Uint32 type, pgEventDictProxy *dict_proxy)
     event.type = _pg_pgevent_proxify(type);
     event.user.data1 = (void *)dict_proxy;
 
-    if (dict_proxy) {
-        if (dict_proxy->mut) {
-            if (SDL_LockMutex(dict_proxy->mut) == -1) {
-                return -1;
-            }
-        }
-    }
-
     ret = SDL_PushEvent(&event);
     if (ret == 1 && dict_proxy) {
         /* successfully posted event with dictproxy */
+        SDL_AtomicLock(&dict_proxy->lock);
         dict_proxy->num_on_queue++;
-    }
-
-    if (dict_proxy) {
-        if (dict_proxy->mut) {
-            if (SDL_UnlockMutex(dict_proxy->mut) == -1) {
-                return -1;
-            }
-        }
+        SDL_AtomicUnlock(&dict_proxy->lock);
     }
 
     return ret;
@@ -654,8 +640,8 @@ pg_post_event(Uint32 type, PyObject *dict)
 
     Py_INCREF(dict);
     dict_proxy->dict = dict;
-    /* No mutex for dict that is posted only once */
-    dict_proxy->mut = NULL;
+    /* initially set to 0 - unlocked state */
+    dict_proxy->lock = 0;
     dict_proxy->num_on_queue = 0;
     /* So that event function handling this frees it */
     dict_proxy->is_freed = 1;
@@ -920,6 +906,7 @@ dict_from_event(SDL_Event *event)
 
     /* check if a proxy event or userevent was posted */
     if (event->type >= PGPOST_EVENTBEGIN) {
+        int is_freed;
         pgEventDictProxy *dict_proxy = (pgEventDictProxy *)event->user.data1;
         if (!dict_proxy) {
             /* the field being NULL implies empty dict */
@@ -928,34 +915,17 @@ dict_from_event(SDL_Event *event)
         /* decref dict which was allocated previously */
         Py_DECREF(dict);
 
-        if (dict_proxy->mut) {
-            if (SDL_LockMutex(dict_proxy->mut) == -1) {
-                return RAISE(pgExc_SDLError, SDL_GetError());
-            }
-        }
-
+        /* spinlocks must be held and released as quickly as possible */
+        SDL_AtomicLock(&dict_proxy->lock);
         dict = dict_proxy->dict;
         dict_proxy->num_on_queue--;
-        if (dict_proxy->num_on_queue <= 0 && dict_proxy->is_freed) {
-            /* At this stage mutex is already to be destroyed */
-            if (dict_proxy->mut) {
-                Py_DECREF(dict);
-                SDL_UnlockMutex(dict_proxy->mut);
-                SDL_DestroyMutex(dict_proxy->mut);
-                free(dict_proxy);
-                return RAISE(pgExc_SDLError,
-                             "Internal pygame error, unexpected unfreed mutex "
-                             "(which should not have happened). If you are "
-                             "seeing this report this to the devs!");
-            }
+        is_freed = dict_proxy->num_on_queue <= 0 && dict_proxy->is_freed;
+        SDL_AtomicUnlock(&dict_proxy->lock);
+
+        if (is_freed) {
             free(dict_proxy);
         }
         else {
-            if (dict_proxy->mut) {
-                if (SDL_UnlockMutex(dict_proxy->mut) == -1) {
-                    return RAISE(pgExc_SDLError, SDL_GetError());
-                }
-            }
             Py_INCREF(dict);
         }
         return dict;

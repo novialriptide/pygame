@@ -50,7 +50,7 @@
  * hold GIL in case of event timers */
 typedef struct _pgEventDictProxy {
     PyObject *dict;
-    SDL_mutex *mut;
+    SDL_SpinLock lock;
     int num_on_queue;
     Uint8 is_freed;
 } pgEventDictProxy;
