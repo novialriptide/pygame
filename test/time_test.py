@@ -308,7 +308,7 @@ class TimeModuleTest(unittest.TestCase):
         for event in pygame.event.get():
             self.assertNotIn(event.type, events_tests_dict)
 
-        for event_type, (_, ev_dict, repeat, stop) in events_tests_dict.items():
+        for event_type, (_, _, repeat, stop) in events_tests_dict.items():
             # recheck that the counts exactly match, and we don't have lesser
             # events than expected
             if stop is not None:
@@ -317,6 +317,19 @@ class TimeModuleTest(unittest.TestCase):
                 self.assertEqual(repeat, counts[event_type])
 
         pygame.quit()
+
+    def test_timer_wrong_args(self):
+        for out_of_range_val in (-1, -10, pygame.NUMEVENTS, pygame.NUMEVENTS + 1):
+            self.assertRaises(ValueError, pygame.time.set_timer, out_of_range_val, 10)
+            self.assertRaises(
+                ValueError, pygame.time.set_timer, event=out_of_range_val, millis=10
+            )
+
+        for incorrect_type in ("string", 4 + 3j, [1, 2, 3], {"a": "b"}):
+            self.assertRaises(TypeError, pygame.time.set_timer, incorrect_type, 15)
+            self.assertRaises(
+                TypeError, pygame.time.set_timer, event=incorrect_type, millis=15
+            )
 
     def test_delay(self):
         """Tests time.delay() function."""
