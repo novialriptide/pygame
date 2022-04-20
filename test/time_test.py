@@ -286,8 +286,7 @@ class TimeModuleTest(unittest.TestCase):
                     )
 
                     # the dict attribute should be the same reference, if it exists
-                    if event.dict != {} and set_dict != {}:
-                        self.assertIs(event.dict, set_dict)
+                    self.assertIs(event.dict, set_dict)
 
                     times[event.type] = now_time
                     counts[event.type] += 1

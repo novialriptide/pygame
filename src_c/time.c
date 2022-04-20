@@ -393,9 +393,7 @@ time_set_timer(PyObject *self, PyObject *args, PyObject *kwargs)
     else if (pgEvent_Check(obj)) {
         e = (pgEventObject *)obj;
         ev_type = e->type;
-        if (PyDict_Size(e->dict) > 0) {
-            ev_dict = e->dict;
-        }
+        ev_dict = e->dict;
     }
     else {
         return RAISE(PyExc_TypeError,
@@ -406,13 +404,13 @@ time_set_timer(PyObject *self, PyObject *args, PyObject *kwargs)
         return RAISE(pgExc_SDLError, "pygame is not initialized");
     }
 
-    /* release GIL during because python GIL and and pg_timer_mutex should
-     * not deadlock waiting for each other */
+    /* release GIL because python GIL and and pg_timer_mutex should not
+     * deadlock waiting for each other */
     Py_BEGIN_ALLOW_THREADS;
 
     if (SDL_LockMutex(pg_timer_mutex) < 0) {
         ecode = PG_TIMER_SDL_ERROR;
-        goto end;
+        goto end_no_mutex;
     }
 
     /* get and clear original timer, if it exists */
@@ -446,6 +444,7 @@ end:
         ecode = PG_TIMER_SDL_ERROR;
     }
 
+end_no_mutex:
     Py_END_ALLOW_THREADS;
 
     switch (ecode) {
