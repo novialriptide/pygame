@@ -1848,6 +1848,45 @@ surf_blit(pgSurfaceObject *self, PyObject *args, PyObject *keywds)
         c_anchor_text = PyUnicode_AsUTF8(anchor_text);
     }
 
+    switch (*(int *)c_anchor_text) {
+        case 1819307892:  // topleft
+            break;
+        case 1919971188:  // topright
+            x_mod = 1;
+            break;
+        case 1953787746:  // bottomleft & bottomright
+            if (c_anchor_text == "bottomleft") {
+                y_mod = 1;
+            }
+
+            else if (c_anchor_text == "bottomright") {
+                x_mod = 1;
+                y_mod = 1;
+            }
+            break;
+        case 1818519917:  // midleft
+            y_mod = 2;
+            break;
+        case 1919183213:  // midright
+            x_mod = 1;
+            y_mod = 2;
+            break;
+        case 1952737645:  // midtop
+            x_mod = 2;
+            break;
+        case 1650747757:  // midbottom
+            x_mod = 2;
+            y_mod = 1;
+            break;
+        case 1953391971:  // center
+            x_mod = 2;
+            y_mod = 2;
+            break;
+        default:
+            return RAISE(PyExc_KeyError, "invalid anchor");
+            break;
+    }
+
     if (strcmp(c_anchor_text, "topleft") == 0) {
     }
     else if (strcmp(c_anchor_text, "topright") == 0) {
