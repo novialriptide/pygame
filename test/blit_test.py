@@ -263,5 +263,6 @@ class BlitTest(unittest.TestCase):
 
         self.assertEqual(result, pygame.Rect(43, 43, 15, 15))
 
+
 if __name__ == "__main__":
     unittest.main()
