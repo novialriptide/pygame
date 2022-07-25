@@ -150,6 +150,11 @@ class BlitTest(unittest.TestCase):
             TypeError, dst.blits, [(pygame.Surface((10, 10), SRCALPHA, 32), None)]
         )
 
+    def test_bad_anchor(self):
+        dst = pygame.Surface((100, 10), SRCALPHA, 32)
+        with self.assertRaises(KeyError):
+            dst.blit(pygame.Surface((10, 10)), (0, 0), anchor="novial??")
+
 
 if __name__ == "__main__":
     unittest.main()
