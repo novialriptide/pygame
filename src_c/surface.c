@@ -1848,10 +1848,6 @@ surf_blit(pgSurfaceObject *self, PyObject *args, PyObject *keywds)
         c_anchor_text = PyUnicode_AsUTF8(anchor_text);
     }
 
-    char *valid_anchors[] = {"topleft",     "topright",  "bottomleft",
-                             "bottomright", "midleft",   "midright",
-                             "midtop",      "midbottom", "center"};
-
     if (strcmp(c_anchor_text, "topleft") == 0) {
     }
     else if (strcmp(c_anchor_text, "topright") == 0) {
