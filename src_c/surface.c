@@ -1830,8 +1830,7 @@ surf_blit(pgSurfaceObject *self, PyObject *args, PyObject *keywds)
     SDL_Rect dest_rect;
     int sx, sy;
     int the_args = 0; /* Represents special_flags */
-    PyObject *anchor_text = NULL;
-    const char *c_anchor_text = "topleft";
+    const char *anchor_text = "topleft";
 
     /* 1 = 100% of the width/height, 2 = 50% of the width/height */
     int x_mod = 0;
@@ -1839,27 +1838,22 @@ surf_blit(pgSurfaceObject *self, PyObject *args, PyObject *keywds)
 
     static char *kwids[] = {"source",        "dest",   "area",
                             "special_flags", "anchor", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, keywds, "O!O|OiO", kwids,
+    if (!PyArg_ParseTupleAndKeywords(args, keywds, "O!O|Ois", kwids,
                                      &pgSurface_Type, &srcobject, &argpos,
                                      &argrect, &the_args, &anchor_text))
         return NULL;
 
-    if (anchor_text != NULL) {
-        c_anchor_text = PyUnicode_AsUTF8(anchor_text);
-    }
-
-    switch (*(int *)c_anchor_text) {
+    switch (*(int *)anchor_text) {
         case 1819307892:  // topleft
             break;
         case 1919971188:  // topright
             x_mod = 1;
             break;
         case 1953787746:  // bottomleft & bottomright
-            if (c_anchor_text == "bottomleft") {
+            if (strcmp(anchor_text, "bottomleft") == 0) {
                 y_mod = 1;
             }
-
-            else if (c_anchor_text == "bottomright") {
+            else if (strcmp(anchor_text, "bottomright") == 0) {
                 x_mod = 1;
                 y_mod = 1;
             }
@@ -1885,40 +1879,6 @@ surf_blit(pgSurfaceObject *self, PyObject *args, PyObject *keywds)
         default:
             return RAISE(PyExc_KeyError, "invalid anchor");
             break;
-    }
-
-    if (strcmp(c_anchor_text, "topleft") == 0) {
-    }
-    else if (strcmp(c_anchor_text, "topright") == 0) {
-        x_mod = 1;
-    }
-    else if (strcmp(c_anchor_text, "bottomleft") == 0) {
-        y_mod = 1;
-    }
-    else if (strcmp(c_anchor_text, "bottomright") == 0) {
-        x_mod = 1;
-        y_mod = 1;
-    }
-    else if (strcmp(c_anchor_text, "midleft") == 0) {
-        y_mod = 2;
-    }
-    else if (strcmp(c_anchor_text, "midright") == 0) {
-        x_mod = 1;
-        y_mod = 2;
-    }
-    else if (strcmp(c_anchor_text, "midtop") == 0) {
-        x_mod = 2;
-    }
-    else if (strcmp(c_anchor_text, "midbottom") == 0) {
-        x_mod = 2;
-        y_mod = 1;
-    }
-    else if (strcmp(c_anchor_text, "center") == 0) {
-        x_mod = 2;
-        y_mod = 2;
-    }
-    else {
-        return RAISE(PyExc_KeyError, "invalid anchor");
     }
 
     src = pgSurface_AsSurface(srcobject);
