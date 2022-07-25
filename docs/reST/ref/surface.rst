@@ -90,13 +90,20 @@
    .. method:: blit
 
       | :sl:`draw one image onto another`
-      | :sg:`blit(source, dest, area=None, special_flags=0) -> Rect`
+      | :sg:`blit(source, dest, area=None, special_flags=0, anchor=<anchor_type>) -> Rect`
 
       Draws a source Surface onto this Surface. The draw can be positioned with
       the dest argument. The dest argument can either be a pair of coordinates representing the position of
       the upper left corner of the blit or a Rect, where the upper left corner of the rectangle will be used as the
       position for the blit. The size of the destination rectangle does not
       effect the blit.
+
+      Specifying the anchor as a string like ``center`` will draw the surface at the center.
+
+         ::
+
+            topleft, bottomleft, topright, bottomright
+            midtop, midleft, midbottom, midright, center
 
       An optional area rectangle can be passed as well. This represents a
       smaller portion of the source Surface to draw.
@@ -119,6 +126,10 @@
          this gives different results than the default blitter, which is modelled after SDL1, due to
          different approximations used for the alpha blending formula. The SDL2 blitter also supports
          RLE on alpha blended surfaces which the pygame one does not.
+
+      .. versionadded:: 2.1.3
+         Optional ``anchor``: ``topleft``, ``topright``, ``bottomleft``, ``bottomright``,
+         ``midtop``, ``midbottom``, ``midleft``, ``midright``, ``center``
 
       The return rectangle is the area of the affected pixels, excluding any
       pixels outside the destination Surface, or outside the clipping area.
